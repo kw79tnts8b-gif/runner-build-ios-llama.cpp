@@ -1,0 +1,60 @@
+name: 给iOS16.4+越狱设备编译llama.cpp metal版
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装Cmake和Ninja和Ldid
+        run: brew install cmake ninja ldid
+
+      - name: 下载并解压llama.cpp源码
+        run: |
+          curl -L -o llama.cpp-1.0.0.zip https://github.com/ggml-org/llama.cpp/archive/refs/tags/v1.0.0.zip
+          unzip -q llama.cpp-1.0.0.zip
+
+      - name: 下载并解压sdk文件
+        run: |
+          curl -L -o iPhoneOS17.5.sdk.zip https://github.com/xybp888/iOS-SDKs/releases/download/iOS17.5-SDKs/iPhoneOS17.5.sdk.zip
+          unzip -q iPhoneOS17.5.sdk.zip
+
+      - name: 配置
+        run: |
+          set -o pipefail
+          cmake -S llama.cpp-1.0.0 -B build -G Ninja \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_SYSTEM_PROCESSOR=arm64 \
+            -DCMAKE_OSX_SYSROOT=iPhoneOS17.5.sdk \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=16.4 \
+            -DCMAKE_MACOSX_BUNDLE=OFF \
+            -DBUILD_SHARED_LIBS=OFF \
+            -LAH 2>&1 | tee cmake-LAH.txt
+
+      - name: 编译 llama-cli 与 llama-server
+        run: cmake --build build --target llama-cli llama-server -j "$(sysctl -n hw.ncpu)"
+
+      - name: 校验架构并伪签名
+        run: |
+          file build/bin/llama-cli build/bin/llama-server
+          ldid -S build/bin/llama-cli
+          ldid -S build/bin/llama-server
+
+      - name: 打包产物与配置缓存
+        run: |
+          mkdir -p package
+          cp build/bin/llama-cli build/bin/llama-server cmake-LAH.txt package/
+          file package/llama-cli package/llama-server
+          ls -lh package/
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: llama-cli-server-ios-arm64-static
+          path: package/
+          if-no-files-found: error
