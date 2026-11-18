@@ -1,4 +1,4 @@
-name: 给iOS16.4+越狱设备编译llama.cpp
+name: 给iOS16.4+越狱设备编译llama.cpp cpu版
 
 on:
   workflow_dispatch:
@@ -12,6 +12,11 @@ jobs:
 
       - name: 安装Cmake和Ninja和Ldid
         run: brew install cmake ninja ldid
+
+      - name: 安装 Node.js（用于本地构建 Web UI）
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
 
       - name: 下载并解压llama.cpp源码
         run: |
@@ -35,6 +40,8 @@ jobs:
             -DCMAKE_MACOSX_BUNDLE=OFF \
             -DBUILD_SHARED_LIBS=OFF \
             -DGGML_METAL=OFF \
+            -DLLAMA_BUILD_UI=ON \
+            -DLLAMA_USE_PREBUILT_UI=OFF \
             -LAH 2>&1 | tee cmake-LAH.txt
 
       - name: 编译 llama-cli 与 llama-server
@@ -56,6 +63,6 @@ jobs:
       - name: 上传产物
         uses: actions/upload-artifact@v4
         with:
-          name: llama-cli-server-ios-arm64-static-cpu
+          name: llama-cli-server-ios-arm64-static-with-ui-cpu
           path: package/
           if-no-files-found: error
