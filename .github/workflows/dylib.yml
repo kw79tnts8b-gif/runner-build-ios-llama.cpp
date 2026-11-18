@@ -1,0 +1,122 @@
+name: 编译 llama.cpp v1.0.0 iOS dylib（供 App 主进程 dlopen，Metal/CPU 可选）
+
+on:
+  workflow_dispatch:
+    inputs:
+      backend:
+        description: '后端：cpu=纯CPU / metal=GPU加速'
+        required: true
+        default: 'cpu'
+        type: choice
+        options:
+          - cpu
+          - metal
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Cmake / Ninja / Ldid
+        run: brew install cmake ninja ldid
+
+      - name: 安装 Node.js（本地构建 Web UI）
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 下载并解压 llama.cpp v1.0.0 源码
+        run: |
+          curl -L -o llama.cpp-1.0.0.zip https://github.com/ggml-org/llama.cpp/archive/refs/tags/v1.0.0.zip
+          unzip -q llama.cpp-1.0.0.zip
+
+      - name: 下载并解压 iOS SDK
+        run: |
+          curl -L -o iPhoneOS17.5.sdk.zip https://github.com/xybp888/iOS-SDKs/releases/download/iOS17.5-SDKs/iPhoneOS17.5.sdk.zip
+          unzip -q iPhoneOS17.5.sdk.zip
+
+      - name: 配置（BUILD_SHARED_LIBS=ON 编动态库）
+        run: |
+          set -o pipefail
+          if [ "${{ github.event.inputs.backend }}" = "metal" ]; then
+            METAL_OPT="-DGGML_METAL=ON -DGGML_METAL_EMBED_LIBRARY=ON"
+            TAG="metal"
+          else
+            METAL_OPT="-DGGML_METAL=OFF -DGGML_METAL_EMBED_LIBRARY=OFF"
+            TAG="cpu"
+          fi
+          echo "=== 后端: $TAG / $METAL_OPT ==="
+          rm -rf build
+          cmake -S llama.cpp-1.0.0 -B build -G Ninja \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_SYSTEM_PROCESSOR=arm64 \
+            -DCMAKE_OSX_SYSROOT="$(pwd)/iPhoneOS17.5.sdk" \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=16.4 \
+            -DCMAKE_MACOSX_BUNDLE=OFF \
+            -DBUILD_SHARED_LIBS=ON \
+            -DCMAKE_INSTALL_NAME_DIR="@loader_path" \
+            -DLLAMA_BUILD_UI=ON \
+            -DLLAMA_USE_PREBUILT_UI=OFF \
+            $METAL_OPT \
+            2>&1 | tee cmake-LAH.txt
+          echo "$TAG" > backend-tag.txt
+
+      - name: 编译动态库（llama-server-impl 会带出整条依赖链）
+        run: |
+          cmake --build build --target llama-server-impl -j "$(sysctl -n hw.ncpu)"
+
+      - name: 收集 dylib + 修复依赖路径 + 签名
+        run: |
+          set -e
+          TAG=$(cat backend-tag.txt)
+          mkdir -p package
+          # 1) 收集 build 目录下所有 dylib
+          find build -type f -name "*.dylib" -exec cp {} package/ \;
+          echo "=== 收集到的 dylib ==="
+          ls -lh package/*.dylib
+
+          # 2) 把所有 dylib 的 install id 改成 @loader_path/文件名
+          for f in package/*.dylib; do
+            bn=$(basename "$f")
+            install_name_tool -id "@loader_path/$bn" "$f"
+          done
+
+          # 3) 把每个 dylib 对其他 dylib 的依赖改成 @loader_path/文件名
+          for f in package/*.dylib; do
+            bn=$(basename "$f")
+            # 取该 dylib 依赖里所有含 lib 的 dylib 绝对路径/@rpath 引用
+            deps=$(otool -L "$f" | awk '{print $1}' | grep -E '\.dylib$' | grep -v "^@loader_path" || true)
+            while IFS= read -r dep; do
+              [ -z "$dep" ] && continue
+              depbn=$(basename "$dep")
+              # 只处理确实在 package 里存在的依赖（项目自己的库）
+              if [ -f "package/$depbn" ]; then
+                install_name_tool -change "$dep" "@loader_path/$depbn" "$f"
+              fi
+            done <<< "$deps"
+          done
+
+          # 4) 伪签名所有 dylib（TrollStore 非沙盒权限在宿主 App，dylib 空签即可）
+          for f in package/*.dylib; do
+            ldid -S "$f"
+          done
+
+          # 5) 校验：架构 + 依赖 + 关键符号
+          echo "=== 架构校验 ==="
+          file package/*.dylib
+          echo "=== llama_server 符号校验 ==="
+          nm -gU package/libllama-server-impl.dylib 2>/dev/null | grep -i "llama_server" || true
+          echo "=== 依赖校验(impl) ==="
+          otool -L package/libllama-server-impl.dylib
+
+      - name: 打包上传
+        uses: actions/upload-artifact@v4
+        with:
+          name: llama-dylib-ios-arm64-${{ github.event.inputs.backend }}
+          path: |
+            package/*.dylib
+            backend-tag.txt
+          if-no-files-found: error
