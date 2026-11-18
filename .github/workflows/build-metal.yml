@@ -1,4 +1,4 @@
-name: 给iOS16.4+越狱设备编译llama.cpp metal版（含Web UI）
+name: 给iOS16.4+越狱设备编译llama.cpp metal版
 
 on:
   workflow_dispatch:
