@@ -40,8 +40,6 @@ jobs:
             -DCMAKE_MACOSX_BUNDLE=OFF \
             -DBUILD_SHARED_LIBS=OFF \
             -DGGML_METAL=OFF \
-            -DLLAMA_BUILD_UI=ON \
-            -DLLAMA_USE_PREBUILT_UI=OFF \
             -LAH 2>&1 | tee cmake-LAH.txt
 
       - name: 编译 llama-cli 与 llama-server
