@@ -34,7 +34,7 @@ jobs:
           cmake -S llama.cpp-1.0.0 -B build -G Ninja \
             -DCMAKE_SYSTEM_NAME=iOS \
             -DCMAKE_SYSTEM_PROCESSOR=arm64 \
-            -DCMAKE_OSX_SYSROOT=./iPhoneOS17.5.sdk \
+            -DCMAKE_OSX_SYSROOT=iphoneos \
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=16.4 \
             -DCMAKE_MACOSX_BUNDLE=OFF \
