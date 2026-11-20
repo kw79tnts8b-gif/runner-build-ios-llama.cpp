@@ -26,6 +26,7 @@ jobs:
       - name: 配置
         run: |
           set -o pipefail
+          export HF_UI_VERSION=b12359
           cmake -S llama.cpp-1.0.0 -B build -G Ninja \
             -DCMAKE_SYSTEM_NAME=iOS \
             -DCMAKE_SYSTEM_PROCESSOR=arm64 \
