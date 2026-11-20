@@ -15,8 +15,8 @@ jobs:
 
       - name: 下载并解压llama.cpp源码
         run: |
-          curl -L -o llama.cpp-1.0.0.zip https://github.com/ggml-org/llama.cpp/archive/refs/tags/v1.0.0.zip
-          unzip -q llama.cpp-1.0.0.zip
+          curl -L -o llama.cpp-0.8.0.zip https://github.com/ggml-org/llama.cpp/archive/refs/tags/v0.8.0.zip
+          unzip -q llama.cpp-0.8.0.zip
 
       - name: 下载并解压sdk文件
         run: |
@@ -26,8 +26,8 @@ jobs:
       - name: 配置
         run: |
           set -o pipefail
-          export HF_UI_VERSION=b12359
-          cmake -S llama.cpp-1.0.0 -B build -G Ninja \
+          export HF_UI_VERSION=b11960
+          cmake -S llama.cpp-0.8.0 -B build -G Ninja \
             -DCMAKE_SYSTEM_NAME=iOS \
             -DCMAKE_SYSTEM_PROCESSOR=arm64 \
             -DCMAKE_OSX_SYSROOT=./iPhoneOS17.5.sdk \
@@ -38,25 +38,29 @@ jobs:
             -DGGML_METAL=OFF \
             -LAH 2>&1 | tee cmake-LAH.txt
 
-      - name: 编译 llama-cli 与 llama-server
-        run: cmake --build build --target llama-cli llama-server -j "$(sysctl -n hw.ncpu)"
+      - name: 编译 llama-server
+        run: cmake --build build --target llama-server -j "$(sysctl -n hw.ncpu)"
 
       - name: 校验架构并伪签名
         run: |
-          file build/bin/llama-cli build/bin/llama-server
-          ldid -S build/bin/llama-cli
+          file build/bin/llama-server
           ldid -S build/bin/llama-server
 
-      - name: 打包产物与配置缓存
+      - name: 打包产物与源码、SDK
         run: |
-          mkdir -p package
-          cp build/bin/llama-cli build/bin/llama-server cmake-LAH.txt package/
-          file package/llama-cli package/llama-server
-          ls -lh package/
+          mkdir -p llama-server-ios-cpu-0.8.0/files
+          # 编译产物
+          cp build/bin/llama-server llama-server-ios-cpu-0.8.0/
+          cp cmake-LAH.txt llama-server-ios-cpu-0.8.0/
+          # 源码与SDK
+          cp -r llama.cpp-0.8.0 llama-server-ios-cpu-0.8.0/files/
+          cp -r iPhoneOS17.5.sdk llama-server-ios-cpu-0.8.0/files/
+          # 核对
+          ls -lhR llama-server-ios-cpu-0.8.0/
 
       - name: 上传产物
         uses: actions/upload-artifact@v4
         with:
-          name: llama-cli-server-ios-arm64-static-with-ui-cpu
-          path: package/
+          name: llama-server-ios-cpu-0.8.0
+          path: llama-server-ios-cpu-0.8.0/
           if-no-files-found: error
