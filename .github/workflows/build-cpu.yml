@@ -1,4 +1,4 @@
-name: iOS16.4+ 越狱编译 llama.cpp v0.9.0 (UI b12110) cpu版
+name: 给iOS16.4+越狱设备 编译 llama.cpp v1.0.0 (UI b12359) cpu版
 
 on:
   workflow_dispatch:
@@ -15,8 +15,8 @@ jobs:
 
       - name: 下载并解压llama.cpp源码
         run: |
-          curl -L -o llama.cpp-0.9.0.zip https://github.com/ggml-org/llama.cpp/archive/refs/tags/v0.9.0.zip
-          unzip -q llama.cpp-0.9.0.zip
+          curl -L -o llama.cpp-1.0.0.zip https://github.com/ggml-org/llama.cpp/archive/refs/tags/v1.0.0.zip
+          unzip -q llama.cpp-1.0.0.zip
 
       - name: 下载并解压sdk文件
         run: |
@@ -26,8 +26,8 @@ jobs:
       - name: 配置
         run: |
           set -o pipefail
-          export HF_UI_VERSION=b12110
-          cmake -S llama.cpp-0.9.0 -B build -G Ninja \
+          export HF_UI_VERSION=b12359
+          cmake -S llama.cpp-1.0.0 -B build -G Ninja \
             -DCMAKE_SYSTEM_NAME=iOS \
             -DCMAKE_SYSTEM_PROCESSOR=arm64 \
             -DCMAKE_OSX_SYSROOT=./iPhoneOS17.5.sdk \
@@ -48,16 +48,16 @@ jobs:
 
       - name: 打包产物与源码、SDK
         run: |
-          mkdir -p llama-server-ios-cpu-0.9.0/files
-          cp build/bin/llama-server llama-server-ios-cpu-0.9.0/
-          cp cmake-LAH.txt llama-server-ios-cpu-0.9.0/
-          cp -r llama.cpp-0.9.0 llama-server-ios-cpu-0.9.0/files/
-          cp -r iPhoneOS17.5.sdk llama-server-ios-cpu-0.9.0/files/
-          ls -lhR llama-server-ios-cpu-0.9.0/
+          mkdir -p llama-server-ios-cpu-1.0.0/files
+          cp build/bin/llama-server llama-server-ios-cpu-1.0.0/
+          cp cmake-LAH.txt llama-server-ios-cpu-1.0.0/
+          cp -r llama.cpp-1.0.0.zip llama-server-ios-cpu-1.0.0/files/
+          cp -r iPhoneOS17.5.sdk.zip llama-server-ios-cpu-1.0.0/files/
+          ls -lhR llama-server-ios-cpu-1.0.0/
 
       - name: 上传产物
         uses: actions/upload-artifact@v4
         with:
-          name: llama-server-ios-cpu-0.9.0
-          path: llama-server-ios-cpu-0.9.0/
+          name: llama-server-ios-cpu-1.0.0
+          path: llama-server-ios-cpu-1.0.0/
           if-no-files-found: error
