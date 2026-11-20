@@ -1,4 +1,4 @@
-name: 给iOS16.4+越狱设备 编译 llama.cpp v1.0.0 (UI b12359) cpu版
+name: 给iOS16.4+越狱设备编译llama.cpp-NoMetal
 
 on:
   workflow_dispatch:
@@ -38,26 +38,25 @@ jobs:
             -DGGML_METAL=OFF \
             -LAH 2>&1 | tee cmake-LAH.txt
 
-      - name: 编译 llama-server
-        run: cmake --build build --target llama-server -j "$(sysctl -n hw.ncpu)"
+      - name: 编译 llama-cli 与 llama-server
+        run: cmake --build build --target llama-cli llama-server -j "$(sysctl -n hw.ncpu)"
 
       - name: 校验架构并伪签名
         run: |
-          file build/bin/llama-server
+          file build/bin/llama-cli build/bin/llama-server
+          ldid -S build/bin/llama-cli
           ldid -S build/bin/llama-server
 
-      - name: 打包产物与源码、SDK
+      - name: 打包产物与配置缓存
         run: |
-          mkdir -p llama-server-ios-cpu-1.0.0/files
-          cp build/bin/llama-server llama-server-ios-cpu-1.0.0/
-          cp cmake-LAH.txt llama-server-ios-cpu-1.0.0/
-          cp -r llama.cpp-1.0.0.zip llama-server-ios-cpu-1.0.0/files/
-          cp -r iPhoneOS17.5.sdk.zip llama-server-ios-cpu-1.0.0/files/
-          ls -lhR llama-server-ios-cpu-1.0.0/
+          mkdir -p package
+          cp build/bin/llama-cli build/bin/llama-server cmake-LAH.txt package/
+          file package/llama-cli package/llama-server
+          ls -lh package/
 
       - name: 上传产物
         uses: actions/upload-artifact@v4
         with:
-          name: llama-server-ios-cpu-1.0.0
-          path: llama-server-ios-cpu-1.0.0/
+          name: llama-cli-server-ios-nometal
+          path: package/
           if-no-files-found: error
