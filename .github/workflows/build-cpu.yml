@@ -13,15 +13,10 @@ jobs:
       - name: 安装Cmake和Ninja和Ldid
         run: brew install cmake ninja ldid
 
-      - name: 安装 Node.js（用于本地构建 Web UI）
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
       - name: 下载并解压llama.cpp源码
         run: |
-          curl -L -o llama.cpp-0.9.0.zip https://github.com/ggml-org/llama.cpp/archive/refs/tags/v0.9.0.zip
-          unzip -q llama.cpp-0.9.0.zip
+          curl -L -o llama.cpp-1.0.0.zip https://github.com/ggml-org/llama.cpp/archive/refs/tags/v1.0.0.zip
+          unzip -q llama.cpp-1.0.0.zip
 
       - name: 下载并解压sdk文件
         run: |
@@ -31,7 +26,7 @@ jobs:
       - name: 配置
         run: |
           set -o pipefail
-          cmake -S llama.cpp-0.9.0 -B build -G Ninja \
+          cmake -S llama.cpp-1.0.0 -B build -G Ninja \
             -DCMAKE_SYSTEM_NAME=iOS \
             -DCMAKE_SYSTEM_PROCESSOR=arm64 \
             -DCMAKE_OSX_SYSROOT=./iPhoneOS17.5.sdk \
