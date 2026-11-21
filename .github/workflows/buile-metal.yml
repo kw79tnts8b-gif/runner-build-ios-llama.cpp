@@ -47,12 +47,16 @@ jobs:
 
                   id<MTLDevice> device = ggml_metal_device_get_obj(ctx->dev);
                   const size_t page_size = (size_t)sysconf(_SC_PAGESIZE);
-                  const bool can_wrap = (((uintptr_t)data % page_size) == 0) && ((size % page_size) == 0);
+                  // Metal 只要求包装指针和 length 页对齐。把 length round-up 到整页后包装，
+                  // blit 仍只拷实际 size 字节，不会写越界。这样即可走回异步零拷贝路径，
+                  // 避免每个 token 都 waitUntilCompleted + 刷 warn 日志（正是性能瓶颈）。
+                  const bool ptr_aligned = (((uintptr_t)data % page_size) == 0);
+                  const size_t wrap_size = (size + page_size - 1) & ~(page_size - 1);
 
                   id<MTLBuffer> buf_dst = nil;
-                  if (can_wrap) {
+                  if (ptr_aligned) {
                       buf_dst = [device newBufferWithBytesNoCopy:data
-                                                          length:size
+                                                          length:wrap_size
                                                          options:MTLResourceStorageModeShared
                                                      deallocator:nil];
                       GGML_ASSERT(buf_dst);
@@ -84,7 +88,12 @@ jobs:
                       return;
                   }
 
-                  GGML_LOG_WARN("%s: host buffer not page-wrappable (ptr=%p size=%zu), using sync copy\n", __func__, data, size);
+                  // 指针非页对齐时的兜底：同步 staging buffer。正常情况不会走到这里。
+                  static bool warned_sync_copy = false;
+                  if (!warned_sync_copy) {
+                      warned_sync_copy = true;
+                      GGML_LOG_WARN("%s: host pointer not page-aligned (ptr=%p size=%zu), using sync copy\n", __func__, data, size);
+                  }
                   const size_t staging_size = (size + page_size - 1) & ~(page_size - 1);
                   void * staging_data = NULL;
                   if (posix_memalign(&staging_data, page_size, staging_size) != 0) {
