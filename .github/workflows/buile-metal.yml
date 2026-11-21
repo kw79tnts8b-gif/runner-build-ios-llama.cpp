@@ -1,4 +1,4 @@
-name: 给iOS16.4+越狱设备编译llama.cpp-Metal
+name: 给iOS16.4+越狱设备编译llama.cpp-Metal（修复Metal崩溃版）
 
 on:
   workflow_dispatch:
@@ -17,6 +17,106 @@ jobs:
         run: |
           curl -L -o llama.cpp-1.0.0.zip https://github.com/ggml-org/llama.cpp/archive/refs/tags/v1.0.0.zip
           unzip -q llama.cpp-1.0.0.zip
+
+      # ★ 新增：打 Metal buffer 修复补丁（解决 GGML_ASSERT(buf_dst) 崩溃）
+      - name: 修复Metal buffer bug
+        run: |
+          cat > apply_metal_fix.py <<'PYEOF'
+          import sys, os, re
+          root = "llama.cpp-1.0.0"
+          path = os.path.join(root, "ggml/src/ggml-metal/ggml-metal-context.m")
+          src = open(path, encoding="utf-8").read()
+
+          inc_anchor = '#import <Metal/Metal.h>'
+          inc_add = '#import <Metal/Metal.h>\n\n#include <stdlib.h>\n#include <string.h>\n#include <unistd.h>'
+          if '#include <stdlib.h>' not in src:
+              assert inc_anchor in src, "找不到 Metal.h import 锚点"
+              src = src.replace(inc_anchor, inc_add, 1)
+
+          sig = 'void ggml_metal_get_tensor_async('
+          start = src.index(sig)
+          m = re.search(r'\n\}\s*\n', src[start:])
+          assert m, "找不到 get_tensor_async 函数结尾"
+          end = start + m.end()
+
+          new_func = r'''void ggml_metal_get_tensor_async(ggml_metal_t ctx, const struct ggml_tensor * tensor, void * data, size_t offset, size_t size) {
+              @autoreleasepool {
+                  if (size == 0) {
+                      return;
+                  }
+
+                  id<MTLDevice> device = ggml_metal_device_get_obj(ctx->dev);
+                  const size_t page_size = (size_t)sysconf(_SC_PAGESIZE);
+                  const bool can_wrap = (((uintptr_t)data % page_size) == 0) && ((size % page_size) == 0);
+
+                  id<MTLBuffer> buf_dst = nil;
+                  if (can_wrap) {
+                      buf_dst = [device newBufferWithBytesNoCopy:data
+                                                          length:size
+                                                         options:MTLResourceStorageModeShared
+                                                     deallocator:nil];
+                      GGML_ASSERT(buf_dst);
+                  }
+
+                  struct ggml_metal_buffer_id bid_src = ggml_metal_get_buffer_id(tensor);
+                  if (bid_src.metal == nil) {
+                      GGML_ABORT("%s: failed to find buffer for tensor '%s'\n", __func__, tensor->name);
+                  }
+                  bid_src.offs += offset;
+
+                  id<MTLCommandQueue> queue = ggml_metal_device_get_queue(ctx->dev);
+                  id<MTLCommandBuffer> cmd_buf = [queue commandBuffer];
+                  id<MTLBlitCommandEncoder> encoder = [cmd_buf blitCommandEncoder];
+
+                  if (buf_dst) {
+                      [encoder copyFromBuffer:bid_src.metal
+                                 sourceOffset:bid_src.offs
+                                     toBuffer:buf_dst
+                            destinationOffset:0
+                                         size:size];
+                      [encoder endEncoding];
+                      [cmd_buf commit];
+                      [ctx->buf_refs addObject:buf_dst];
+                      [buf_dst release];
+                      [ctx->cmd_bufs_ext addObject:cmd_buf];
+                      ctx->cmd_buf_last = cmd_buf;
+                      [cmd_buf retain];
+                      return;
+                  }
+
+                  GGML_LOG_WARN("%s: host buffer not page-wrappable (ptr=%p size=%zu), using sync copy\n", __func__, data, size);
+                  const size_t staging_size = (size + page_size - 1) & ~(page_size - 1);
+                  void * staging_data = NULL;
+                  if (posix_memalign(&staging_data, page_size, staging_size) != 0) {
+                      GGML_ABORT("%s: failed to allocate staging buffer\n", __func__);
+                  }
+                  id<MTLBuffer> buf_staging = [device newBufferWithBytesNoCopy:staging_data
+                                                                       length:staging_size
+                                                                      options:MTLResourceStorageModeShared
+                                                                  deallocator:nil];
+                  if (buf_staging == nil) {
+                      free(staging_data);
+                      GGML_ABORT("%s: failed to create staging buffer\n", __func__);
+                  }
+                  [encoder copyFromBuffer:bid_src.metal
+                             sourceOffset:bid_src.offs
+                                 toBuffer:buf_staging
+                        destinationOffset:0
+                                     size:size];
+                  [encoder endEncoding];
+                  [cmd_buf commit];
+                  [cmd_buf waitUntilCompleted];
+                  memcpy(data, buf_staging.contents, size);
+                  [buf_staging release];
+                  free(staging_data);
+              }
+          }
+          '''
+          src = src[:start] + new_func + src[end:]
+          open(path, "w", encoding="utf-8").write(src)
+          print("PATCH OK")
+          PYEOF
+          python3 apply_metal_fix.py
 
       - name: 下载并解压sdk文件
         run: |
@@ -56,6 +156,6 @@ jobs:
       - name: 上传产物
         uses: actions/upload-artifact@v4
         with:
-          name: llama-cli-server-ios-metal
+          name: llama-cli-server-ios-metal-fixed
           path: package/
           if-no-files-found: error
