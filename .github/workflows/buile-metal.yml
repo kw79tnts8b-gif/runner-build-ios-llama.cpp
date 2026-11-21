@@ -135,10 +135,16 @@ jobs:
             -DCMAKE_OSX_DEPLOYMENT_TARGET=16.4 \
             -DCMAKE_MACOSX_BUNDLE=OFF \
             -DBUILD_SHARED_LIBS=OFF \
+            -DGGML_METAL_TARGET_OS=ios \
             -LAH 2>&1 | tee cmake-LAH.txt
 
       - name: 编译 llama-cli 与 llama-server
         run: cmake --build build --target llama-cli llama-server -j "$(sysctl -n hw.ncpu)"
+
+      - name: 校验 Metal target OS 必须为 ios
+        run: |
+          grep 'GGML_METAL_TARGET_OS' cmake-LAH.txt
+          grep -q 'GGML_METAL_TARGET_OS:STRING=ios' cmake-LAH.txt || { echo "::error::Metal target OS 不是 ios，将在本机推理时卡死桌面！"; exit 1; }
 
       - name: 校验架构并伪签名
         run: |
